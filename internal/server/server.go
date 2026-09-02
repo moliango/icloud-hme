@@ -119,6 +119,11 @@ func (s *Server) register() {
 			authed.POST("/aliases/:id/reactivate", csrfCheck(s.auth), s.reactivateAliasHandler)
 			authed.DELETE("/aliases/:id", csrfCheck(s.auth), s.deleteAliasHandler)
 
+			// ===== 供应商邮箱:分配 / 收信 / 释放 =====
+			authed.POST("/vendor/mailbox", csrfCheck(s.auth), s.vendorAllocateMailboxHandler)
+			authed.GET("/vendor/messages", s.vendorListMessagesHandler)
+			authed.DELETE("/vendor/mailbox", csrfCheck(s.auth), s.vendorReleaseMailboxHandler)
+
 			// ===== 系统 =====
 			authed.POST("/reload", csrfCheck(s.auth), s.reloadConfigHandler)
 		}
@@ -176,10 +181,11 @@ func (s *Server) createAliasHandler(c *gin.Context) {
 		return
 	}
 	ok(c, gin.H{
-		"email":      result.Email,
-		"label":      result.Label,
-		"created_at": result.CreatedAt,
-		"account_id": req.AccountID,
+		"email":        result.Email,
+		"anonymous_id": result.AnonymousID,
+		"label":        result.Label,
+		"created_at":   result.CreatedAt,
+		"account_id":   req.AccountID,
 	})
 }
 

@@ -238,6 +238,7 @@ X-CSRF-Token: <token>
   "success": true,
   "data": {
     "email": "xyz123@icloud.com",
+    "anonymous_id": "abc123",
     "label": "注册某网站",
     "created_at": "2026-01-15T10:30:00+08:00",
     "account_id": "acc_1"
@@ -332,6 +333,53 @@ X-CSRF-Token: <token>
 ```
 
 重新读取 `accounts.json`。
+
+### 18. 供应商邮箱：分配别名
+
+给 grok-register-mint 等自动化调用方使用。`account_id` 可省略，服务会选第一个可用（active 且已配置 Cookie / App Password）的账号。
+
+```http
+POST /api/vendor/mailbox
+X-CSRF-Token: <token>
+
+{"account_id": "acc_1", "label": "grok-register"}
+```
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "email": "xyz123@icloud.com",
+    "anonymous_id": "abc123",
+    "label": "grok-register",
+    "created_at": "2026-09-02T10:30:00Z",
+    "account_id": "acc_1"
+  }
+}
+```
+
+### 19. 供应商邮箱：读取邮件
+
+契约与 `GET /api/inbox` 相同。
+
+```http
+GET /api/vendor/messages?account_id=acc_1&alias=xyz123@icloud.com&limit=20&days=7
+```
+
+### 20. 供应商邮箱：删除别名
+
+`email` 与 `anonymous_id` 至少提供一个。只给邮箱时会先列出别名再删除。
+
+```http
+DELETE /api/vendor/mailbox
+X-CSRF-Token: <token>
+
+{"account_id": "acc_1", "email": "xyz123@icloud.com"}
+```
+
+**响应：** `{"account_id":"acc_1","email":"xyz123@icloud.com","anonymous_id":"abc123","deleted":true}`
 
 ---
 

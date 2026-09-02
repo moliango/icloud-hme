@@ -475,6 +475,7 @@ icloud-hme/
     │   ├── backend.go      # 业务接口与 Manager 适配器
     │   ├── auth.go         # 登录/会话/退出 handler 与中间件
     │   ├── account_handlers.go  # 账号管理 handler
+    │   ├── vendor.go       # 自动化供应商:分配/收信/删除别名
     │   └── middleware.go   # 安全响应头、请求上限
     └── webui/
         └── embed.go        # 内嵌前端资源 + SPA fallback
@@ -488,6 +489,7 @@ icloud-hme/
 - **mail.Client**: IMAP 邮件客户端 (App Password,优先读邮件)
 - **mail.WebClient**: 通过 iCloud Web API (mccgateway) 读取邮件,无需 App Password
 - **server.Server**: HTTP API 服务 + 管理界面静态资源
+- **server.vendor**: 给 grok-register-mint 等调用方的邮箱生命周期接口（`/api/vendor/mailbox`、`/api/vendor/messages`）
 
 ## 技术栈
 

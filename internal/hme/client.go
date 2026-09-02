@@ -467,10 +467,28 @@ func (c *Client) Generate() (string, error) {
 	return hme, nil
 }
 
+// lookupAnonymousID 从别名列表按邮箱反查 anonymousId。
+func (c *Client) lookupAnonymousID(email string) string {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return ""
+	}
+	aliases, err := c.ListAliases()
+	if err != nil {
+		return ""
+	}
+	for _, alias := range aliases {
+		if strings.EqualFold(alias.Email, email) {
+			return alias.AnonymousID
+		}
+	}
+	return ""
+}
+
 // Reserve 保留/确认候选别名,使其正式生效。
-func (c *Client) Reserve(hme, label string) (string, error) {
+func (c *Client) Reserve(hme, label string) (reservedAlias, error) {
 	if err := c.resolveService(); err != nil {
-		return "", err
+		return reservedAlias{}, err
 	}
 	if label == "" {
 		label = "Created " + time.Now().Format("2006-01-02 15:04")
@@ -483,29 +501,46 @@ func (c *Client) Reserve(hme, label string) (string, error) {
 	}
 	body, err := c.request("POST", c.serviceURL+"/v1/hme/reserve", payload, 0, 2)
 	if err != nil {
-		return "", err
+		return reservedAlias{}, err
 	}
 	parsed := gjson.Parse(body)
 	if !parsed.Get("success").Bool() {
 		errMsg := parsed.Get("error.errorMessage").String()
-		return "", fmt.Errorf("保留失败: %s", nonEmpty(errMsg, "unknown"))
+		return reservedAlias{}, fmt.Errorf("保留失败: %s", nonEmpty(errMsg, "unknown"))
 	}
 	alias := hme
+	anonymousID := firstNonEmpty(
+		parsed.Get("result.hme.anonymousId").String(),
+		parsed.Get("result.anonymousId").String(),
+		parsed.Get("result.hme.id").String(),
+	)
 	resultHme := parsed.Get("result.hme")
 	if resultHme.IsObject() {
 		if v := resultHme.Get("hme").String(); v != "" {
 			alias = v
 		}
+		if v := resultHme.Get("email").String(); v != "" && strings.Contains(v, "@") {
+			alias = v
+		}
+	} else if v := resultHme.String(); v != "" && strings.Contains(v, "@") {
+		alias = v
 	}
 	c.log("已保留: %s", alias)
-	return alias, nil
+	return reservedAlias{Email: alias, AnonymousID: anonymousID}, nil
+}
+
+// reservedAlias 是 Reserve 成功后的别名身份。
+type reservedAlias struct {
+	Email       string
+	AnonymousID string
 }
 
 // CreateResult 是 CreateAlias 的返回结果。
 type CreateResult struct {
-	Email     string `json:"email"`
-	Label     string `json:"label"`
-	CreatedAt string `json:"created_at"`
+	Email       string `json:"email"`
+	AnonymousID string `json:"anonymous_id,omitempty"`
+	Label       string `json:"label"`
+	CreatedAt   string `json:"created_at"`
 }
 
 // CreateAlias 一步完成「生成 + 保留」,创建一个新别名。
@@ -533,7 +568,7 @@ func (c *Client) CreateAlias(label string, maxRetries int) (*CreateResult, error
 			}
 			break
 		}
-		email, err := c.Reserve(hme, label)
+		reserved, err := c.Reserve(hme, label)
 		if err != nil {
 			lastErr = err.Error()
 			c.log("reserve 失败: %s", lastErr)
@@ -543,10 +578,15 @@ func (c *Client) CreateAlias(label string, maxRetries int) (*CreateResult, error
 			}
 			break
 		}
+		anonymousID := reserved.AnonymousID
+		if anonymousID == "" {
+			anonymousID = c.lookupAnonymousID(reserved.Email)
+		}
 		return &CreateResult{
-			Email:     email,
-			Label:     label,
-			CreatedAt: time.Now().Format(time.RFC3339),
+			Email:       reserved.Email,
+			AnonymousID: anonymousID,
+			Label:       label,
+			CreatedAt:   time.Now().Format(time.RFC3339),
 		}, nil
 	}
 	if lastErr != "" {

@@ -42,6 +42,9 @@ type fakeBackend struct {
 	aliasDeleteErr error
 	listInboxQuery InboxQuery
 	reloadCount    int
+
+	createAccountID string
+	createLabel     string
 }
 
 func (f *fakeBackend) ListAccounts() []account.Summary { return f.accounts }
@@ -100,6 +103,7 @@ func (f *fakeBackend) RemoveAccount(id string) bool {
 }
 
 func (f *fakeBackend) CreateAlias(accountID, label string) (*hme.CreateResult, error) {
+	f.createAccountID, f.createLabel = accountID, label
 	return f.created, nil
 }
 
