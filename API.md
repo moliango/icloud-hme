@@ -338,6 +338,8 @@ X-CSRF-Token: <token>
 
 给 grok-register-mint 等自动化调用方使用。`account_id` 可省略，服务会选第一个可用（active 且已配置 Cookie / App Password）的账号。
 
+分配时**先列出已有 HME 别名**，跳过已标记「用于 Grok」的地址；有未用的就直接复用（`reused: true`），没有才向 Apple 创建。标记存在 `data/alias_marks.json`。
+
 ```http
 POST /api/vendor/mailbox
 X-CSRF-Token: <token>
@@ -355,10 +357,13 @@ X-CSRF-Token: <token>
     "anonymous_id": "abc123",
     "label": "grok-register",
     "created_at": "2026-09-02T10:30:00Z",
-    "account_id": "acc_1"
+    "account_id": "acc_1",
+    "reused": false
   }
 }
 ```
+
+Apple 返回创建频率限制时为 `429 RATE_LIMITED`。
 
 ### 19. 供应商邮箱：读取邮件
 
@@ -368,9 +373,9 @@ X-CSRF-Token: <token>
 GET /api/vendor/messages?account_id=acc_1&alias=xyz123@icloud.com&limit=20&days=7
 ```
 
-### 20. 供应商邮箱：删除别名
+### 20. 供应商邮箱：释放别名
 
-`email` 与 `anonymous_id` 至少提供一个。只给邮箱时会先列出别名再删除。
+`email` 与 `anonymous_id` 至少提供一个。此接口**不会向 Apple 删除别名**，只把该地址标记为已用于 Grok，下次分配会跳过。管理界面的 `DELETE /api/aliases/:id` 仍会真正删除。
 
 ```http
 DELETE /api/vendor/mailbox

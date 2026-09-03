@@ -323,7 +323,17 @@ func classifyUpstreamErr(fixedMsg string, err error) *BackendError {
 	if isSessionError(err.Error()) {
 		return &BackendError{Status: http.StatusUnauthorized, Code: "UPSTREAM_UNAUTHORIZED", Message: "iCloud 会话失效,请更新 Cookie"}
 	}
+	if isAppleCreateLimit(err.Error()) {
+		return &BackendError{Status: http.StatusTooManyRequests, Code: "RATE_LIMITED", Message: "Apple 限制了别名创建频率，请稍后再试"}
+	}
 	return &BackendError{Status: http.StatusBadGateway, Code: "UPSTREAM_FAILURE", Message: fixedMsg}
+}
+
+func isAppleCreateLimit(msg string) bool {
+	m := strings.ToLower(msg)
+	return strings.Contains(m, "reached the limit") ||
+		strings.Contains(m, "try again later") ||
+		strings.Contains(m, "limit of addresses")
 }
 
 // isSessionError 判断错误是否由会话失效引起。

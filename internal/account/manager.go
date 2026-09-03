@@ -78,6 +78,11 @@ func NewManager(dataDir string) (*Manager, error) {
 	return m, nil
 }
 
+// DataDir 返回账号数据目录。
+func (m *Manager) DataDir() string {
+	return m.dataDir
+}
+
 // Close 释放 IMAP 连接池等资源。
 func (m *Manager) Close() {
 	if m.imapPool != nil {

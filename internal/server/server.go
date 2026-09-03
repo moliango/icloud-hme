@@ -15,12 +15,14 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"icloud-hme/internal/account"
+	"icloud-hme/internal/aliasmark"
 	"icloud-hme/internal/auth"
 	"icloud-hme/internal/webui"
 )
@@ -31,6 +33,7 @@ type Config struct {
 	AdminPassword string
 	SessionTTL    time.Duration
 	SecureCookie  bool
+	DataDir       string
 }
 
 // Server 封装 Gin 引擎、账号后端与认证。
@@ -38,6 +41,7 @@ type Server struct {
 	be      Backend
 	auth    *auth.Manager
 	limiter *auth.Limiter
+	marks   *aliasmark.Store
 	cfg     Config
 	r       *gin.Engine
 }
@@ -50,6 +54,9 @@ func New(mgr *account.Manager, cfg Config) (*Server, error) {
 	}); err != nil {
 		return nil, err
 	}
+	if cfg.DataDir == "" {
+		cfg.DataDir = mgr.DataDir()
+	}
 	return newWithBackend(&managerBackend{mgr: mgr}, cfg), nil
 }
 
@@ -58,9 +65,14 @@ func newWithBackend(be Backend, cfg Config) *Server {
 	if !cfg.Debug {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	markPath := ""
+	if strings.TrimSpace(cfg.DataDir) != "" {
+		markPath = filepath.Join(cfg.DataDir, "alias_marks.json")
+	}
 	s := &Server{
 		be:      be,
 		limiter: auth.NewLimiter(nil, 15*time.Minute, 5, 10000),
+		marks:   aliasmark.Open(markPath),
 		cfg:     cfg,
 	}
 	s.auth, _ = auth.NewManager(auth.Options{

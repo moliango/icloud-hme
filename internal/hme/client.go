@@ -612,22 +612,22 @@ func (c *Client) CreateAlias(label string, maxRetries int) (*CreateResult, error
 		if err != nil {
 			lastErr = "generate 失败: " + err.Error()
 			c.info("%s", lastErr)
-			if attempt < maxRetries-1 {
-				time.Sleep(time.Second)
-				continue
+			if isAppleCreateLimitErr(lastErr) || attempt >= maxRetries-1 {
+				break
 			}
-			break
+			time.Sleep(time.Second)
+			continue
 		}
 		c.info("generate 成功 candidate=%s", hme)
 		reserved, err := c.Reserve(hme, label)
 		if err != nil {
 			lastErr = "reserve 失败: " + err.Error()
 			c.info("%s", lastErr)
-			if attempt < maxRetries-1 {
-				time.Sleep(time.Second)
-				continue
+			if isAppleCreateLimitErr(lastErr) || attempt >= maxRetries-1 {
+				break
 			}
-			break
+			time.Sleep(time.Second)
+			continue
 		}
 		anonymousID := reserved.AnonymousID
 		if anonymousID == "" {
@@ -787,6 +787,13 @@ func findFirstDictArray(v gjson.Result) gjson.Result {
 }
 
 // ---- 小工具 ----
+
+func isAppleCreateLimitErr(msg string) bool {
+	m := strings.ToLower(msg)
+	return strings.Contains(m, "reached the limit") ||
+		strings.Contains(m, "try again later") ||
+		strings.Contains(m, "limit of addresses")
+}
 
 func truncate(s string, n int) string {
 	if n <= 0 || len(s) <= n {

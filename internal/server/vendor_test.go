@@ -44,13 +44,41 @@ func TestVendorAllocateMailbox(t *testing.T) {
 			Email       string `json:"email"`
 			AnonymousID string `json:"anonymous_id"`
 			AccountID   string `json:"account_id"`
+			Reused      bool   `json:"reused"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(body), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Data.Email != "hide@icloud.com" || out.Data.AnonymousID != "anon-1" || out.Data.AccountID != "acc_1" {
+	if out.Data.Email != "hide@icloud.com" || out.Data.AnonymousID != "anon-1" || out.Data.AccountID != "acc_1" || out.Data.Reused {
 		t.Fatalf("分配响应不正确: %+v", out.Data)
+	}
+}
+
+func TestVendorAllocateReusesUnusedAlias(t *testing.T) {
+	f := &fakeBackend{
+		accounts: []account.Summary{{ID: "acc_1", Status: "active", HasCookies: true}},
+		aliases: []hme.Alias{{
+			Email: "old@icloud.com", AnonymousID: "anon-old", Active: true, Label: "kept",
+		}},
+		created: &hme.CreateResult{Email: "new@icloud.com", AnonymousID: "anon-new"},
+	}
+	_, ts := newTestServer(f)
+	defer ts.Close()
+	sess, csrf := login(t, ts, "admin-pass-2026-strong")
+
+	req := authedReq(t, ts, "POST", "/api/vendor/mailbox", `{"account_id":"acc_1"}`)
+	req.AddCookie(&http.Cookie{Name: "hme_session", Value: sess})
+	req.Header.Set("X-CSRF-Token", csrf)
+	status, body, _ := do(t, req)
+	if status != http.StatusOK {
+		t.Fatalf("期望 200,得到 %d: %s", status, body)
+	}
+	if f.createAccountID != "" {
+		t.Fatalf("有未使用别名时不应向 Apple 创建,却创建了 %q", f.createAccountID)
+	}
+	if !strings.Contains(body, `"old@icloud.com"`) || !strings.Contains(body, `"reused":true`) {
+		t.Fatalf("应复用已有别名: %s", body)
 	}
 }
 
@@ -84,6 +112,7 @@ func TestVendorMessagesAndRelease(t *testing.T) {
 		aliases: []hme.Alias{{
 			Email: "hide@icloud.com", AnonymousID: "anon-9", Active: true,
 		}},
+		created: &hme.CreateResult{Email: "new@icloud.com", AnonymousID: "anon-new"},
 		inbox: InboxResult{
 			AccountID: "acc_1",
 			Alias:     "hide@icloud.com",
@@ -119,8 +148,22 @@ func TestVendorMessagesAndRelease(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("释放期望 200,得到 %d: %s", status, body)
 	}
-	if f.aliasDeleteID != "anon-9" {
-		t.Fatalf("应按邮箱解析 anonymous_id 后删除,得到 %q", f.aliasDeleteID)
+	if f.aliasDeleteID != "" {
+		t.Fatalf("供应商释放不应向 Apple 删除别名,却删除了 %q", f.aliasDeleteID)
+	}
+	if !strings.Contains(body, `"marked_used":true`) {
+		t.Fatalf("应标记已用: %s", body)
+	}
+
+	req = authedReq(t, ts, "POST", "/api/vendor/mailbox", `{"account_id":"acc_1"}`)
+	req.AddCookie(&http.Cookie{Name: "hme_session", Value: sess})
+	req.Header.Set("X-CSRF-Token", csrf)
+	status, body, _ = do(t, req)
+	if status != http.StatusOK {
+		t.Fatalf("再次分配期望 200,得到 %d: %s", status, body)
+	}
+	if strings.Contains(body, `"hide@icloud.com"`) && strings.Contains(body, `"reused":true`) {
+		t.Fatalf("已用别名不应再被分配: %s", body)
 	}
 }
 
