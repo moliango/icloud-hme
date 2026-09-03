@@ -278,7 +278,7 @@ describe('AliasesPage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
-  it('删除别名:要求输入完整邮箱,用 anonymousId 构造 URL 并编码', async () => {
+  it('删除别名:直接确认或取消,用 anonymousId 构造 URL 并编码', async () => {
     let deletedUrl = ''
     server.use(
       http.get('/api/accounts', () => HttpResponse.json({ success: true, data: accounts })),
@@ -296,10 +296,13 @@ describe('AliasesPage', () => {
     const alphaRow = within(screen.getByRole('table')).getByRole('row', { name: /alpha@icloud\.com/ })
     await user.click(within(alphaRow).getByRole('button', { name: /删除/ }))
     expect(screen.getByRole('dialog')).toHaveTextContent('alpha@icloud.com')
-    // 输入不完整邮箱时按钮禁用
-    await user.type(screen.getByLabelText(/输入完整邮箱/), 'alpha@icloud')
-    expect(screen.getByRole('button', { name: /确认删除/ })).toBeDisabled()
-    await user.type(screen.getByLabelText(/输入完整邮箱/), '.com')
+    expect(screen.queryByLabelText(/输入完整邮箱/)).toBeNull()
+    expect(screen.getByRole('button', { name: /确认删除/ })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: /取消/ }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(deletedUrl).toBe('')
+
+    await user.click(within(alphaRow).getByRole('button', { name: /删除/ }))
     await user.click(screen.getByRole('button', { name: /确认删除/ }))
     await waitFor(() => expect(deletedUrl).toContain('anon_alpha'))
   })

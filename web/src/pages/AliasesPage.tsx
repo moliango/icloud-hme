@@ -406,12 +406,6 @@ export default function AliasesPage() {
                 : `将重新激活别名 ${confirm.alias.email}。`
           }
           confirmLabel={confirmLabel}
-          requireText={
-            confirm.type === 'delete' ? confirm.alias.email : undefined
-          }
-          requireLabel={
-            confirm.type === 'delete' ? '输入完整邮箱' : undefined
-          }
           open
           busy={busy}
           onClose={() => setConfirm(null)}
