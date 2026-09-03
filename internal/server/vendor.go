@@ -51,7 +51,7 @@ func (s *Server) vendorAllocateMailboxHandler(c *gin.Context) {
 	aliases, listErr := s.be.ListAliases(accountID)
 	if listErr != nil {
 		log.Printf("vendor allocate 列表失败,将尝试创建 account=%s err=%v", accountID, listErr)
-	} else if picked, ok := s.marks.PickUnused(accountID, aliases); ok {
+	} else if picked, reused := s.marks.PickUnused(accountID, aliases); reused {
 		log.Printf("vendor allocate 复用未注册别名 account=%s email=%s", accountID, picked.Email)
 		ok(c, gin.H{
 			"email":        picked.Email,
