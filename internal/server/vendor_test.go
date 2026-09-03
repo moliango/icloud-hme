@@ -148,11 +148,14 @@ func TestVendorMessagesAndRelease(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("释放期望 200,得到 %d: %s", status, body)
 	}
-	if f.aliasDeleteID != "" {
-		t.Fatalf("供应商释放不应向 Apple 删除别名,却删除了 %q", f.aliasDeleteID)
+	if f.aliasActID != "anon-9" || f.aliasActActive {
+		t.Fatalf("应收信后先停用别名,得到 id=%q active=%v", f.aliasActID, f.aliasActActive)
 	}
-	if !strings.Contains(body, `"marked_used":true`) {
-		t.Fatalf("应标记已用: %s", body)
+	if f.aliasDeleteID != "anon-9" {
+		t.Fatalf("停用后应向 Apple 删除别名,得到 %q", f.aliasDeleteID)
+	}
+	if !strings.Contains(body, `"deleted":true`) {
+		t.Fatalf("应删除别名: %s", body)
 	}
 
 	req = authedReq(t, ts, "POST", "/api/vendor/mailbox", `{"account_id":"acc_1"}`)

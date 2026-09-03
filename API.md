@@ -375,7 +375,7 @@ GET /api/vendor/messages?account_id=acc_1&alias=xyz123@icloud.com&limit=20&days=
 
 ### 20. 供应商邮箱：释放别名
 
-`email` 与 `anonymous_id` 至少提供一个。此接口**不会向 Apple 删除别名**，只把该地址标记为已用于 Grok，下次分配会跳过。管理界面的 `DELETE /api/aliases/:id` 仍会真正删除。
+`email` 与 `anonymous_id` 至少提供一个。注册机收信结束后会调用此接口：**先停用再向 Apple 删除**该别名，并标记已用。
 
 ```http
 DELETE /api/vendor/mailbox
@@ -384,7 +384,7 @@ X-CSRF-Token: <token>
 {"account_id": "acc_1", "email": "xyz123@icloud.com"}
 ```
 
-**响应：** `{"account_id":"acc_1","email":"xyz123@icloud.com","anonymous_id":"abc123","deleted":true}`
+**响应：** `{"account_id":"acc_1","email":"xyz123@icloud.com","anonymous_id":"abc123","deactivated":true,"deleted":true}`
 
 ---
 

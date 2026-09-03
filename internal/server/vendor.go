@@ -4,7 +4,7 @@
 //
 //	POST   /api/vendor/mailbox   优先复用未注册过 Grok 的已有别名,没有再向 Apple 创建
 //	GET    /api/vendor/messages  读取该别名收件箱
-//	DELETE /api/vendor/mailbox   标记该别名已用于 Grok,不再分配;不向 Apple 删除
+//	DELETE /api/vendor/mailbox   先停用再向 Apple 删除该别名
 package server
 
 import (
@@ -98,7 +98,7 @@ func (s *Server) vendorListMessagesHandler(c *gin.Context) {
 	s.listInboxHandler(c)
 }
 
-// vendorReleaseMailboxHandler 标记别名已用于 Grok,不再分配。不向 Apple 删除。
+// vendorReleaseMailboxHandler 先停用再向 Apple 删除别名。注册机 wait_for_code 结束后会调这个接口。
 func (s *Server) vendorReleaseMailboxHandler(c *gin.Context) {
 	var req vendorReleaseReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -121,13 +121,27 @@ func (s *Server) vendorReleaseMailboxHandler(c *gin.Context) {
 			anonymousID = alias.AnonymousID
 		}
 	}
+	if anonymousID == "" {
+		failCode(c, http.StatusNotFound, "VALIDATION_ERROR", "别名不存在")
+		return
+	}
+	if _, deactErr := s.be.SetAliasActive(accountID, anonymousID, false); deactErr != nil {
+		log.Printf("vendor release 停用失败,继续删除 account=%s email=%s err=%v", accountID, email, deactErr)
+	} else {
+		log.Printf("vendor release 已停用 account=%s email=%s", accountID, email)
+	}
+	if err := s.be.DeleteAlias(accountID, anonymousID); err != nil {
+		backendFail(c, err)
+		return
+	}
 	s.marks.MarkUsed(accountID, email, anonymousID)
-	log.Printf("vendor release 标记已用于 Grok account=%s email=%s", accountID, email)
+	log.Printf("vendor release 已从 Apple 删除 account=%s email=%s", accountID, email)
 	ok(c, gin.H{
 		"account_id":   accountID,
 		"email":        email,
 		"anonymous_id": anonymousID,
-		"deleted":      false,
+		"deactivated":  true,
+		"deleted":      true,
 		"marked_used":  true,
 	})
 }

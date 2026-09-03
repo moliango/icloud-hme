@@ -101,7 +101,7 @@ func (s *Store) RememberCreated(accountID, email, anonymousID string) {
 	_ = s.saveLocked()
 }
 
-// MarkUsed 注册机释放邮箱时标记为已用,不再分配。不删除 Apple 侧别名。
+// MarkUsed 注册机释放邮箱后标记为已用,避免列表缓存里再次分配。
 func (s *Store) MarkUsed(accountID, email, anonymousID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
