@@ -251,6 +251,7 @@ export default function AccountsPage() {
       {appPwdFor && (
         <AppPasswordDialog
           accountId={appPwdFor.id}
+          initialEmail={appPwdFor.icloud_email}
           open
           onClose={() => setAppPwdFor(null)}
           onSaved={() => {

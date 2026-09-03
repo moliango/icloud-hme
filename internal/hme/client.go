@@ -6,9 +6,11 @@ package hme
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"sort"
 	"strings"
@@ -182,8 +184,48 @@ func (c *Client) Origin() string {
 
 func (c *Client) log(format string, args ...any) {
 	if c.Verbose {
-		fmt.Printf("  [iCloud] %s\n", fmt.Sprintf(format, args...))
+		log.Printf("[iCloud] "+format, args...)
 	}
+}
+
+// info 始终写入进程日志,创建别名排障用;不含 Cookie。
+func (c *Client) info(format string, args ...any) {
+	log.Printf("[iCloud] "+format, args...)
+}
+
+func summarizeAppleBody(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	if gjson.Valid(body) {
+		parsed := gjson.Parse(body)
+		msg := firstNonEmpty(
+			parsed.Get("error.errorMessage").String(),
+			parsed.Get("errorMessage").String(),
+			parsed.Get("reason").String(),
+			parsed.Get("status").String(),
+		)
+		success := parsed.Get("success")
+		if msg != "" {
+			if success.Exists() {
+				return fmt.Sprintf("success=%v err=%s", success.Value(), msg)
+			}
+			return msg
+		}
+		if success.Exists() {
+			return fmt.Sprintf("success=%v", success.Value())
+		}
+	}
+	return truncate(body, 240)
+}
+
+func requestPath(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	return u.Host + u.Path
 }
 
 // buildURL 给 URL 追加 clientBuildNumber / clientMasteringNumber / clientId / dsid 查询参数,
@@ -245,8 +287,10 @@ func (c *Client) request(method, rawURL string, body any, timeout time.Duration,
 			reqBody = bytes.NewReader(buf)
 		}
 
-		req, err := http.NewRequest(method, fullURL, reqBody)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
 		if err != nil {
+			cancel()
 			return "", err
 		}
 		req.Header.Set("Origin", c.Origin())
@@ -287,9 +331,13 @@ func (c *Client) request(method, rawURL string, body any, timeout time.Duration,
 			}
 		}
 
+		started := time.Now()
 		resp, err := c.httpc.Do(req)
+		dur := time.Since(started)
+		cancel()
 		if err != nil {
 			lastErr = fmt.Errorf("连接失败: %w", err)
+			c.info("%s %s attempt=%d/%d dur=%s err=%v", method, requestPath(fullURL), attempt, maxAttempts, dur.Round(time.Millisecond), lastErr)
 			if attempt < maxAttempts {
 				c.sleepRetry(attempt)
 				continue
@@ -299,6 +347,7 @@ func (c *Client) request(method, rawURL string, body any, timeout time.Duration,
 
 		text, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		snippet := summarizeAppleBody(string(text))
 
 		// 从 Set-Cookie 响应头更新 Cookie（模拟浏览器行为,iCloud 会刷新 token）
 		for _, sc := range resp.Cookies() {
@@ -308,11 +357,8 @@ func (c *Client) request(method, rawURL string, body any, timeout time.Duration,
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			snippet := string(text)
-			if len(snippet) > 200 {
-				snippet = snippet[:200]
-			}
 			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, snippet)
+			c.info("%s %s attempt=%d/%d status=%d dur=%s body=%s", method, requestPath(fullURL), attempt, maxAttempts, resp.StatusCode, dur.Round(time.Millisecond), snippet)
 			// 401/403 说明 Cookie 失效,不重试直接返回。
 			if resp.StatusCode == 401 || resp.StatusCode == 403 {
 				return "", lastErr
@@ -323,6 +369,7 @@ func (c *Client) request(method, rawURL string, body any, timeout time.Duration,
 			}
 			return "", lastErr
 		}
+		c.info("%s %s attempt=%d/%d status=%d dur=%s body=%s", method, requestPath(fullURL), attempt, maxAttempts, resp.StatusCode, dur.Round(time.Millisecond), snippet)
 
 		return string(text), nil
 	}
@@ -355,7 +402,7 @@ func (c *Client) ValidateSession() error {
 
 	body, err := c.request("POST", c.SetupURL()+"/validate", nil, 20*time.Second, MaxRetries)
 	if err != nil {
-		c.log("校验失败: %v", err)
+		c.info("校验失败: %v", err)
 		return err
 	}
 	if !gjson.Valid(body) {
@@ -364,6 +411,7 @@ func (c *Client) ValidateSession() error {
 	data := gjson.Parse(body)
 	serviceURL := data.Get("webservices.premiummailsettings.url").String()
 	if serviceURL == "" {
+		c.info("校验成功但无 HME 端点 body=%s", summarizeAppleBody(body))
 		return fmt.Errorf(
 			"iCloud 会话校验失败 — 可能原因:\n" +
 				"  1. 未开通 iCloud+ 订阅 (Hide My Email 需要 iCloud+)\n" +
@@ -395,6 +443,7 @@ func (c *Client) ValidateSession() error {
 
 	dsInfo := data.Get("dsInfo")
 	c.dsid = dsInfo.Get("dsid").String()
+	c.info("校验成功 dsid=%s hme=%s", c.dsid, requestPath(c.serviceURL))
 	info := &AccountInfo{
 		DSID:             c.dsid,
 		AppleID:          firstNonEmpty(dsInfo.Get("appleId").String(), dsInfo.Get("primaryEmail").String(), dsInfo.Get("appleIdEmail").String()),
@@ -551,27 +600,29 @@ func (c *Client) CreateAlias(label string, maxRetries int) (*CreateResult, error
 	if maxRetries <= 0 {
 		maxRetries = 5
 	}
+	c.info("开始创建别名 label=%q host=%s cookies=%d", label, c.Host, len(c.Cookies))
 	var lastErr string
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			c.serviceURL = ""
 			c.setupURL = ""
-			c.log("重试 %d/%d ...", attempt+1, maxRetries)
+			c.info("创建别名重试 %d/%d last=%s", attempt+1, maxRetries, lastErr)
 		}
 		hme, err := c.Generate()
 		if err != nil {
 			lastErr = "generate 失败: " + err.Error()
-			c.log("%s", lastErr)
+			c.info("%s", lastErr)
 			if attempt < maxRetries-1 {
 				time.Sleep(time.Second)
 				continue
 			}
 			break
 		}
+		c.info("generate 成功 candidate=%s", hme)
 		reserved, err := c.Reserve(hme, label)
 		if err != nil {
-			lastErr = err.Error()
-			c.log("reserve 失败: %s", lastErr)
+			lastErr = "reserve 失败: " + err.Error()
+			c.info("%s", lastErr)
 			if attempt < maxRetries-1 {
 				time.Sleep(time.Second)
 				continue
@@ -582,6 +633,7 @@ func (c *Client) CreateAlias(label string, maxRetries int) (*CreateResult, error
 		if anonymousID == "" {
 			anonymousID = c.lookupAnonymousID(reserved.Email)
 		}
+		c.info("reserve 成功 email=%s anonymous_id=%s", reserved.Email, anonymousID)
 		return &CreateResult{
 			Email:       reserved.Email,
 			AnonymousID: anonymousID,
@@ -590,8 +642,10 @@ func (c *Client) CreateAlias(label string, maxRetries int) (*CreateResult, error
 		}, nil
 	}
 	if lastErr != "" {
+		c.info("创建别名失败: %s", lastErr)
 		return nil, fmt.Errorf("创建别名失败: %s", lastErr)
 	}
+	c.info("创建别名失败,已重试 %d 次", maxRetries)
 	return nil, fmt.Errorf("创建别名失败,已重试 %d 次", maxRetries)
 }
 
@@ -733,6 +787,13 @@ func findFirstDictArray(v gjson.Result) gjson.Result {
 }
 
 // ---- 小工具 ----
+
+func truncate(s string, n int) string {
+	if n <= 0 || len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {

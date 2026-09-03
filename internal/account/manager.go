@@ -596,11 +596,16 @@ func (m *Manager) WebMailClient(id string) (*mail.WebClient, error) {
 
 // SetAppPassword 设置 iCloud 邮箱和 App 专用密码,并测试 IMAP 连接。
 func (m *Manager) SetAppPassword(id, icloudEmail, appPassword string) error {
+	icloudEmail = strings.TrimSpace(icloudEmail)
+	appPassword = strings.ReplaceAll(strings.TrimSpace(appPassword), " ", "")
 	if icloudEmail == "" {
 		return fmt.Errorf("iCloud 邮箱不能为空")
 	}
 	if appPassword == "" {
 		return fmt.Errorf("App 专用密码不能为空")
+	}
+	if !isICloudDomain(icloudEmail) {
+		return fmt.Errorf("请填写 iCloud 邮箱(@icloud.com/@me.com/@mac.com)，不要填 163/QQ 等 Apple ID")
 	}
 
 	m.mu.RLock()

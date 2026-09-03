@@ -6,6 +6,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -118,10 +119,15 @@ func (b *managerBackend) SetAppPassword(id, icloudEmail, appPassword string) (ac
 		if strings.Contains(msg, "账号不存在") {
 			return account.Summary{}, &BackendError{Status: http.StatusNotFound, Code: "ACCOUNT_NOT_FOUND", Message: "账号不存在"}
 		}
-		if strings.Contains(msg, "不能为空") {
+		if strings.Contains(msg, "不能为空") || strings.Contains(msg, "请填写 iCloud 邮箱") {
 			return account.Summary{}, &BackendError{Status: http.StatusBadRequest, Code: "VALIDATION_ERROR", Message: msg}
 		}
-		// IMAP 连接失败属于上游错误,不拼接详细错误
+		if strings.Contains(msg, "IMAP 连接失败") {
+			return account.Summary{}, &BackendError{Status: http.StatusBadGateway, Code: "UPSTREAM_FAILURE", Message: "连不上 imap.mail.me.com:993，请检查网络或账号代理（IMAP 当前直连，不走 HTTP 代理）"}
+		}
+		if strings.Contains(msg, "IMAP 登录失败") {
+			return account.Summary{}, &BackendError{Status: http.StatusBadGateway, Code: "UPSTREAM_FAILURE", Message: "IMAP 登录失败：请用 @icloud.com 邮箱，密码必须是 App 专用密码而不是 Apple ID 密码"}
+		}
 		return account.Summary{}, &BackendError{Status: http.StatusBadGateway, Code: "UPSTREAM_FAILURE", Message: "IMAP 验证失败,请检查邮箱与 App 专用密码"}
 	}
 	sum, ok := b.mgr.GetAccount(id)
@@ -176,15 +182,19 @@ func (b *managerBackend) RemoveAccount(id string) bool {
 
 // CreateAlias 创建 HME 别名。
 func (b *managerBackend) CreateAlias(accountID, label string) (*hme.CreateResult, error) {
+	log.Printf("create alias account=%s label=%q", accountID, label)
 	client, err := b.mgr.HMEClient(accountID, false)
 	if err != nil {
+		log.Printf("create alias account=%s 获取客户端失败: %v", accountID, err)
 		return nil, mapAccountErr(err)
 	}
 	result, err := client.CreateAlias(label, 5)
 	_ = b.mgr.SaveCookies(accountID, client.Cookies)
 	if err != nil {
+		log.Printf("create alias account=%s apple 失败: %v", accountID, err)
 		return nil, classifyUpstreamErr("创建邮箱失败", err)
 	}
+	log.Printf("create alias account=%s ok email=%s", accountID, result.Email)
 	return result, nil
 }
 

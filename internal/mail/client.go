@@ -5,10 +5,12 @@
 package mail
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"mime"
 	"mime/quotedprintable"
+	"net"
 	"net/mail"
 	"strings"
 	"time"
@@ -19,8 +21,9 @@ import (
 )
 
 const (
-	IMAPServer = "imap.mail.me.com"
-	IMAPPort   = 993
+	IMAPServer  = "imap.mail.me.com"
+	IMAPPort    = 993
+	IMAPTimeout = 15 * time.Second
 )
 
 // Message 是一封邮件的摘要信息。
@@ -61,16 +64,49 @@ func (c *Client) Connect() error {
 		c.forceClose()
 	}
 	addr := fmt.Sprintf("%s:%d", IMAPServer, IMAPPort)
-	cli, err := client.DialTLS(addr, nil)
+	dialer := &net.Dialer{Timeout: IMAPTimeout}
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: IMAPServer, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		return fmt.Errorf("IMAP 连接失败: %w", err)
 	}
-	if err := cli.Login(c.appleID, c.appPassword); err != nil {
-		_ = cli.Logout()
-		return fmt.Errorf("IMAP 登录失败 — 请检查: 1) 应用专用密码是否正确 2) Apple ID: %s — %w", c.appleID, err)
+	cli, err := client.New(conn)
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("IMAP 连接失败: %w", err)
 	}
-	c.cli = cli
-	return nil
+	users := imapUsernames(c.appleID)
+	var loginErr error
+	for _, user := range users {
+		if err := cli.Login(user, c.appPassword); err == nil {
+			c.cli = cli
+			return nil
+		} else {
+			loginErr = err
+		}
+	}
+	_ = cli.Logout()
+	return fmt.Errorf("IMAP 登录失败 — 请检查: 1) 应用专用密码是否正确 2) 须用 iCloud 邮箱而非 163/QQ: %s — %w", c.appleID, loginErr)
+}
+
+// imapUsernames 生成 IMAP 登录用户名候选:完整地址,以及 @icloud/@me/@mac 的本地部分。
+func imapUsernames(email string) []string {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil
+	}
+	out := []string{email}
+	at := strings.LastIndex(email, "@")
+	if at <= 0 {
+		return out
+	}
+	domain := strings.ToLower(email[at+1:])
+	if domain == "icloud.com" || domain == "me.com" || domain == "mac.com" {
+		local := email[:at]
+		if local != email {
+			out = append(out, local)
+		}
+	}
+	return out
 }
 
 // Ping 探测连接是否仍可用(NOOP)。

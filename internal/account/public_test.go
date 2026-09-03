@@ -226,3 +226,23 @@ func TestUpdateProxyInvalid(t *testing.T) {
 		t.Fatalf("错误不应泄露代理内容: %v", err)
 	}
 }
+
+// TestSetAppPasswordRejectsThirdPartyEmail 验证 163/QQ 等 Apple ID 不能当 IMAP 用户名。
+func TestSetAppPasswordRejectsThirdPartyEmail(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum, err := m.AddAccountWithInput(AddAccountInput{Name: "主号", ICloudEmail: "a@icloud.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = m.SetAppPassword(sum.ID, "user@163.com", "xxxx-xxxx-xxxx-xxxx")
+	if err == nil {
+		t.Fatal("163 邮箱应当被拒绝")
+	}
+	if !strings.Contains(err.Error(), "请填写 iCloud 邮箱") {
+		t.Fatalf("期望提示使用 iCloud 邮箱,得到 %v", err)
+	}
+}

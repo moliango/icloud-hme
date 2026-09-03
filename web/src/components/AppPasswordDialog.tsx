@@ -4,6 +4,7 @@ import { request, ApiError } from '../api/client'
 
 interface AppPasswordDialogProps {
   accountId: string
+  initialEmail?: string
   open: boolean
   onClose: () => void
   onSaved: () => void
@@ -12,11 +13,12 @@ interface AppPasswordDialogProps {
 /** 设置 App 专用密码对话框:提交后清空 */
 export default function AppPasswordDialog({
   accountId,
+  initialEmail = '',
   open,
   onClose,
   onSaved,
 }: AppPasswordDialogProps) {
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(initialEmail)
   const [appPassword, setAppPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -61,13 +63,15 @@ export default function AppPasswordDialog({
         </div>
       )}
       <div className="form-field">
-        <label htmlFor="apppwd-email">邮箱</label>
+        <label htmlFor="apppwd-email">iCloud 邮箱</label>
         <input
           id="apppwd-email"
           type="email"
+          placeholder="name@icloud.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
+        <p className="hint">须填 @icloud.com / @me.com / @mac.com，不要填 163、QQ 等 Apple ID</p>
       </div>
       <div className="form-field">
         <label htmlFor="apppwd-value">App 专用密码</label>
